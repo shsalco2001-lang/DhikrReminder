@@ -42,6 +42,8 @@ public class MainActivity extends Activity {
     private TextView rateLabel;
     private Button startStop;
     private CheckBox[] boxes;
+    private TextView[] audioStatus;
+    private android.media.MediaPlayer previewPlayer;
     private TextToSpeech testTts;
     private boolean testReady = false;
     private Spinner voiceSpinner;
@@ -169,8 +171,10 @@ public class MainActivity extends Activity {
 
         // ---- Adhkar list ----
         root.addView(header("الأذكار"));
+        root.addView(text("لكل ذكر تقدر تختار تسجيل صوتي حقيقي (بصوتك أو صوت شيخ) — لو مفيش تسجيل هيتقال بالصوت الآلي.", 13, MUTED, false));
         boolean[] on = Prefs.enabled(this);
         boxes = new CheckBox[Adhkar.LIST.length];
+        audioStatus = new TextView[Adhkar.LIST.length];
         for (int i = 0; i < Adhkar.LIST.length; i++) {
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
@@ -194,6 +198,25 @@ public class MainActivity extends Activity {
             card.addView(cb);
             TextView f = text(Adhkar.LIST[i][1] + " — " + Adhkar.LIST[i][2], 13, MUTED, false);
             card.addView(f);
+
+            // recording controls
+            final int idx = i;
+            audioStatus[i] = text("", 13, TEAL, true);
+            audioStatus[i].setPadding(0, dp(6), 0, 0);
+            card.addView(audioStatus[i]);
+            LinearLayout ar = new LinearLayout(this);
+            ar.setOrientation(LinearLayout.HORIZONTAL);
+            Button pick = smallButton("اختيار تسجيل");
+            pick.setOnClickListener(v -> pickAudio(idx));
+            Button play = smallButton("سماع");
+            play.setOnClickListener(v -> preview(idx));
+            Button del = smallButton("حذف التسجيل");
+            del.setOnClickListener(v -> { Prefs.saveAudio(this, idx, ""); refreshAudio(idx); });
+            ar.addView(pick); ar.addView(play); ar.addView(del);
+            android.widget.HorizontalScrollView hs2 = new android.widget.HorizontalScrollView(this);
+            hs2.addView(ar);
+            card.addView(hs2);
+            refreshAudio(i);
             root.addView(card);
         }
 
@@ -215,6 +238,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (testTts != null) testTts.shutdown();
+        stopPreview();
         super.onDestroy();
     }
 
@@ -296,6 +320,65 @@ public class MainActivity extends Activity {
         testTts.setSpeechRate(Prefs.ratePercent(this) / 100f);
         Prefs.applyVoice(this, testTts);
         testTts.speak(Adhkar.spoken(0), TextToSpeech.QUEUE_FLUSH, null, "test");
+    }
+
+    private void pickAudio(int i) {
+        Intent in = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        in.addCategory(Intent.CATEGORY_OPENABLE);
+        in.setType("audio/*");
+        try { startActivityForResult(in, 100 + i); }
+        catch (Exception e) { toast("مفيش تطبيق ملفات لاختيار التسجيل"); }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        int i = req - 100;
+        if (i < 0 || i >= Adhkar.LIST.length || res != RESULT_OK || data == null || data.getData() == null) return;
+        android.net.Uri u = data.getData();
+        try {
+            getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {}
+        Prefs.saveAudio(this, i, u.toString());
+        refreshAudio(i);
+        preview(i);
+    }
+
+    private void refreshAudio(int i) {
+        boolean has = !Prefs.audio(this, i).isEmpty();
+        audioStatus[i].setText(has ? "الصوت: تسجيل حقيقي" : "الصوت: آلي");
+        audioStatus[i].setTextColor(has ? TEAL : MUTED);
+    }
+
+    private void preview(int i) {
+        stopPreview();
+        String u = Prefs.audio(this, i);
+        if (u.isEmpty()) {
+            if (!testReady) { toast("الصوت لسه بيجهز، استنى ثانية"); return; }
+            save();
+            testTts.setSpeechRate(Prefs.ratePercent(this) / 100f);
+            Prefs.applyVoice(this, testTts);
+            testTts.speak(Adhkar.spoken(i), TextToSpeech.QUEUE_FLUSH, null, "p" + i);
+            return;
+        }
+        try {
+            if (testTts != null) testTts.stop();
+            previewPlayer = new android.media.MediaPlayer();
+            previewPlayer.setDataSource(this, android.net.Uri.parse(u));
+            previewPlayer.setOnCompletionListener(mp -> stopPreview());
+            previewPlayer.prepare();
+            previewPlayer.start();
+        } catch (Exception e) {
+            stopPreview();
+            toast("التسجيل ده مش بيشتغل — اختار ملف تاني");
+        }
+    }
+
+    private void stopPreview() {
+        if (previewPlayer != null) {
+            try { previewPlayer.release(); } catch (Exception ignored) {}
+            previewPlayer = null;
+        }
     }
 
     private void updateRateLabel() {

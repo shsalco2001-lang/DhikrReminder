@@ -8,6 +8,8 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -41,6 +43,7 @@ public class DhikrService extends Service implements TextToSpeech.OnInitListener
     private int last = -1;
     private int seq = -1;
     private String lastText = "بدأ التذكير";
+    private MediaPlayer player;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -139,10 +142,41 @@ public class DhikrService extends Service implements TextToSpeech.OnInitListener
         last = i;
         lastText = Adhkar.LIST[i][0];
         updateNotification();
+        if (playRecording(i)) return;
         if (ttsReady) {
             tts.setSpeechRate(Prefs.ratePercent(this) / 100f);
             Prefs.applyVoice(this, tts);
             tts.speak(Adhkar.spoken(i), TextToSpeech.QUEUE_FLUSH, null, "dhikr" + System.currentTimeMillis());
+        }
+    }
+
+    /** Plays the user's recording for dhikr i. Returns false if none / it failed. */
+    private boolean playRecording(int i) {
+        String u = Prefs.audio(this, i);
+        if (u.isEmpty()) return false;
+        releasePlayer();
+        try {
+            if (ttsReady) tts.stop();
+            player = new MediaPlayer();
+            player.setAudioAttributes(new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build());
+            player.setDataSource(this, Uri.parse(u));
+            player.setOnCompletionListener(mp -> releasePlayer());
+            player.prepare();
+            player.start();
+            return true;
+        } catch (Exception e) {
+            releasePlayer();
+            return false;
+        }
+    }
+
+    private void releasePlayer() {
+        if (player != null) {
+            try { player.release(); } catch (Exception ignored) {}
+            player = null;
         }
     }
 
@@ -199,6 +233,7 @@ public class DhikrService extends Service implements TextToSpeech.OnInitListener
         running = false;
         handler.removeCallbacks(tick);
         if (tts != null) { tts.stop(); tts.shutdown(); }
+        releasePlayer();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();

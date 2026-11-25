@@ -14,7 +14,7 @@ public final class Prefs {
     public static int amount(Context c) { return sp(c).getInt("amount", 1); }
     public static int unitSeconds(Context c) { return sp(c).getInt("unit", 60); }
     public static boolean random(Context c) { return sp(c).getBoolean("random", true); }
-    public static int ratePercent(Context c) { return sp(c).getInt("rate", 85); }
+    public static int ratePercent(Context c) { return sp(c).getInt("rate", 80); }
 
     public static String voice(Context c) { return sp(c).getString("voice", ""); }
     public static void saveVoice(Context c, String v) { sp(c).edit().putString("voice", v).apply(); }
@@ -28,6 +28,12 @@ public final class Prefs {
                 if (v.getName().equals(name)) { tts.setVoice(v); return; }
             }
         } catch (Exception ignored) {}
+    }
+
+    /** Recorded audio file (content Uri) chosen for dhikr i, or "" if none. */
+    public static String audio(Context c, int i) { return sp(c).getString("audio_" + i, ""); }
+    public static void saveAudio(Context c, int i, String uri) {
+        sp(c).edit().putString("audio_" + i, uri == null ? "" : uri).apply();
     }
 
     public static boolean[] enabled(Context c) {
