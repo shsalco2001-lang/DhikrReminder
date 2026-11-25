@@ -24,6 +24,9 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -40,6 +43,10 @@ public class MainActivity extends Activity {
     private Button startStop;
     private CheckBox[] boxes;
     private TextToSpeech testTts;
+    private boolean testReady = false;
+    private Spinner voiceSpinner;
+    private final List<String> voiceNames = new ArrayList<>();
+    private boolean voiceInit = true;
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
@@ -120,6 +127,22 @@ public class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s) {}
         });
         root.addView(rate);
+
+        // ---- Voice ----
+        root.addView(header("الصوت"));
+        voiceSpinner = new Spinner(this);
+        root.addView(voiceSpinner);
+        root.addView(text("اختار صوت وهيتنطق على طول علشان تسمعه — جرّب لحد ما تلاقي الصوت الرجالي اللي يعجبك.", 13, MUTED, false));
+        voiceSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(android.widget.AdapterView<?> a, View v, int pos, long id) {
+                if (pos < 0 || pos >= voiceNames.size()) return;
+                Prefs.saveVoice(MainActivity.this, voiceNames.get(pos));
+                if (voiceInit) { voiceInit = false; return; }
+                testVoice();
+            }
+            public void onNothingSelected(android.widget.AdapterView<?> a) {}
+        });
+        initTts();
 
         // ---- Buttons ----
         startStop = bigButton("", TEAL);
@@ -230,22 +253,49 @@ public class MainActivity extends Activity {
         bg.setColor(DhikrService.running ? 0xFFB3261E : TEAL);
     }
 
+    private void initTts() {
+        testTts = new TextToSpeech(this, status -> {
+            if (status != TextToSpeech.SUCCESS) { toast("محرك النطق مش شغال"); return; }
+            int r = testTts.setLanguage(new Locale("ar", "SA"));
+            if (r < 0) r = testTts.setLanguage(new Locale("ar"));
+            if (r < 0) { toast("مفيش صوت عربي — نزّله من إعدادات الصوت"); return; }
+            testReady = true;
+            fillVoices();
+        });
+    }
+
+    private void fillVoices() {
+        voiceNames.clear();
+        List<String> labels = new ArrayList<>();
+        try {
+            List<android.speech.tts.Voice> vs = new ArrayList<>(testTts.getVoices());
+            Collections.sort(vs, (a, b) -> a.getName().compareTo(b.getName()));
+            int n = 1;
+            for (android.speech.tts.Voice v : vs) {
+                if (!"ar".equals(v.getLocale().getLanguage())) continue;
+                if (v.getFeatures() != null && v.getFeatures().contains(
+                        TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                voiceNames.add(v.getName());
+                String net = v.isNetworkConnectionRequired() ? " — يحتاج إنترنت" : "";
+                labels.add("صوت " + n++ + net);
+            }
+        } catch (Exception ignored) {}
+        if (voiceNames.isEmpty()) { labels.add("الصوت الافتراضي"); voiceNames.add(""); }
+        runOnUiThread(() -> {
+            voiceSpinner.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, labels));
+            int sel = voiceNames.indexOf(Prefs.voice(this));
+            voiceInit = true;
+            voiceSpinner.setSelection(Math.max(0, sel));
+        });
+    }
+
     private void testVoice() {
         save();
-        final String say = Adhkar.spoken(0);
-        if (testTts == null) {
-            testTts = new TextToSpeech(this, status -> {
-                if (status != TextToSpeech.SUCCESS) { toast("محرك النطق مش شغال"); return; }
-                int r = testTts.setLanguage(new Locale("ar", "SA"));
-                if (r < 0) r = testTts.setLanguage(new Locale("ar"));
-                if (r < 0) { toast("مفيش صوت عربي — نزّله من إعدادات الصوت"); return; }
-                testTts.setSpeechRate(Prefs.ratePercent(this) / 100f);
-                testTts.speak(say, TextToSpeech.QUEUE_FLUSH, null, "test");
-            });
-        } else {
-            testTts.setSpeechRate(Prefs.ratePercent(this) / 100f);
-            testTts.speak(say, TextToSpeech.QUEUE_FLUSH, null, "test");
-        }
+        if (!testReady) { toast("الصوت لسه بيجهز، استنى ثانية"); return; }
+        testTts.setSpeechRate(Prefs.ratePercent(this) / 100f);
+        Prefs.applyVoice(this, testTts);
+        testTts.speak(Adhkar.spoken(0), TextToSpeech.QUEUE_FLUSH, null, "test");
     }
 
     private void updateRateLabel() {

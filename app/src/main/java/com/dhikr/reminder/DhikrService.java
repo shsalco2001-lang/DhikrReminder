@@ -105,6 +105,7 @@ public class DhikrService extends Service implements TextToSpeech.OnInitListener
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
             .build());
         tts.setSpeechRate(Prefs.ratePercent(this) / 100f);
+        Prefs.applyVoice(this, tts);
         ttsReady = true;
         if (startPending) {
             startPending = false;
@@ -140,6 +141,7 @@ public class DhikrService extends Service implements TextToSpeech.OnInitListener
         updateNotification();
         if (ttsReady) {
             tts.setSpeechRate(Prefs.ratePercent(this) / 100f);
+            Prefs.applyVoice(this, tts);
             tts.speak(Adhkar.spoken(i), TextToSpeech.QUEUE_FLUSH, null, "dhikr" + System.currentTimeMillis());
         }
     }
